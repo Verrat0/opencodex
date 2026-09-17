@@ -350,6 +350,88 @@ describe("google adapter — Antigravity system prompt compatibility", () => {
 
     expect(systemInstructionText(body)).toContain(REJECTED_CLAUDE_SDK_PARAGRAPH);
   });
+
+  test("removes x-anthropic-billing-header for Cloud Code Assist models", async () => {
+    const parsed: OcxParsedRequest = {
+      ...systemPromptParsed("gemini-3.8-flash"),
+      context: {
+        systemPrompt: [
+          "x-anthropic-billing-header: cc_version=2.1.236.b88; cc_entrypoint=sdk-cli;",
+          "You are Claude Code.",
+        ],
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        tools: [],
+      },
+    };
+    const envelope = JSON.parse((await createGoogleAdapter(ccaProvider).buildRequest(parsed)).body) as {
+      request: Record<string, unknown>;
+    };
+
+    expect(systemInstructionText(envelope.request)).not.toContain("x-anthropic-billing-header");
+    expect(systemInstructionText(envelope.request)).toContain("You are Claude Code.");
+  });
+
+  test("preserves x-anthropic-billing-header outside Cloud Code Assist", async () => {
+    const parsed: OcxParsedRequest = {
+      ...systemPromptParsed("gemini-3.8-flash"),
+      context: {
+        systemPrompt: [
+          "x-anthropic-billing-header: cc_version=2.1.236.b88; cc_entrypoint=sdk-cli;",
+          "You are Claude Code.",
+        ],
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        tools: [],
+      },
+    };
+    const body = await geminiBody(parsed);
+
+    expect(systemInstructionText(body)).toContain("x-anthropic-billing-header");
+    expect(systemInstructionText(body)).toContain("You are Claude Code.");
+  });
+
+  test("preserves non-leading x-anthropic-billing-header and leading whitespace in Cloud Code Assist", async () => {
+    const parsed: OcxParsedRequest = {
+      ...systemPromptParsed("gemini-3.8-flash"),
+      context: {
+        systemPrompt: [
+          "  leading indentation",
+          "x-anthropic-billing-header: cc_version=2.1.236.b88; cc_entrypoint=sdk-cli;",
+        ],
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        tools: [],
+      },
+    };
+    const envelope = JSON.parse((await createGoogleAdapter(ccaProvider).buildRequest(parsed)).body) as {
+      request: Record<string, unknown>;
+    };
+
+    expect(systemInstructionText(envelope.request)).toContain("  leading indentation");
+    expect(systemInstructionText(envelope.request)).toContain("x-anthropic-billing-header");
+  });
+
+  test("removes both billing header and Claude Agent SDK paragraph when combined in a single block", async () => {
+    const combinedBlock = [
+      "x-anthropic-billing-header: cc_version=2.1.236.b88; cc_entrypoint=sdk-cli;",
+      REJECTED_CLAUDE_SDK_PARAGRAPH,
+      "You are Claude Code.",
+    ].join("\n\n");
+
+    const parsed: OcxParsedRequest = {
+      ...systemPromptParsed("gemini-3.8-flash"),
+      context: {
+        systemPrompt: [combinedBlock],
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        tools: [],
+      },
+    };
+    const envelope = JSON.parse((await createGoogleAdapter(ccaProvider).buildRequest(parsed)).body) as {
+      request: Record<string, unknown>;
+    };
+
+    expect(systemInstructionText(envelope.request)).not.toContain("x-anthropic-billing-header");
+    expect(systemInstructionText(envelope.request)).not.toContain(REJECTED_CLAUDE_SDK_PARAGRAPH);
+    expect(systemInstructionText(envelope.request)).toContain("You are Claude Code.");
+  });
 });
 
 describe("google adapter — tool_choice on the wire", () => {
